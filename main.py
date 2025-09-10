@@ -8,10 +8,10 @@ def main():
 
     # Create robots (10 each team)
     for i in range(10):
-        robots.append(Robot(i, "group1", 0, 0))
-        robots.append(Robot(i+10, "group2", 19, 19))
+        robots.append(Robot(i, "group1", 0, 0, i))
+        robots.append(Robot(i+10, "group2", 19, 19,i))
 
-    for step in range(50):
+    for step in range(1000):
         print(f"\n=== Step {step} ===")
         for robot in robots:
             robot.act(world, robots)

@@ -13,7 +13,7 @@ class Map:
         self.grid[GRID_SIZE - 1][GRID_SIZE - 1]["deposit"] = "group2"
         
         # Place random gold bars
-        for _ in range(30):  
+        for _ in range(10):  
             x, y = random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)
             if self.grid[y][x]["deposit"] is None:
                 self.grid[y][x]["gold"] += 1
