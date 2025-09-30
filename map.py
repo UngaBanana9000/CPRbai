@@ -1,3 +1,4 @@
+# map.py
 import random
 import matplotlib.pyplot as plt
 
@@ -22,7 +23,6 @@ class Map:
                 
 
 
-        self.gold_claims = {}  # (x,y) -> [robot_ids]
         # Score tracker
         self.scores = {"group1": 0, "group2": 0}
         
@@ -30,39 +30,6 @@ class Map:
         self.fig, self.ax = plt.subplots(figsize=(6, 6))
         plt.ion()  # interactive mode ON
         plt.show()
-
-    def display1(self, robots):
-        """Print grid with robots, gold, deposits, and scores."""
-        for y in range(GRID_SIZE):
-            row = []
-            for x in range(GRID_SIZE):
-                cell = self.grid[y][x]# fix y to flip columns
-                robots_here = [r for r in robots if r.x == x and r.y == y]
-
-                # Default marker
-                marker = ".."
-
-                # Deposit marker
-                if cell["deposit"] == "group1":
-                    marker = "D1"
-                elif cell["deposit"] == "group2":
-                    marker = "D2"
-
-                # Gold marker
-                if cell["gold"] > 0:
-                    marker = f"G{cell['gold']}"
-
-                # Robots override
-                if robots_here:
-                    marker = "|".join([
-                        f"{'R1' if r.group=='group1' else 'R2'}{r.robot_id%10}{r.facing}"
-                        for r in robots_here
-                    ])
-
-                row.append(f"{marker:8}")
-            print("".join(row))
-        print(f"Scores → Group1: {self.scores['group1']} | Group2: {self.scores['group2']}\n")
-
 
     def display(self, robots, step =0):
         """Visualize map with matplotlib."""
@@ -109,7 +76,7 @@ class Map:
             self.ax.arrow(r.x, r.y, dx, dy, head_width=0.2, head_length=0.2, fc=color, ec=color)
 
              # 🟡 Mark carrying gold
-            if r.carrying_gold:
+            if r.carrying:
                 self.ax.scatter(r.x, r.y, c="gold", marker="o", s=200, alpha=0.6, edgecolors="black")
  
         # Title → Step counter + scores
