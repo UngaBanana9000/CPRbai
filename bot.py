@@ -21,7 +21,7 @@ class Robot:
         self.carrying = False
         self.deposit = (0, 0) if self.group == "group1" else (GRID_SIZE - 1, GRID_SIZE - 1)
 
-        self.group_status = {} # {0:{x:0,y:0,facing:N,state:idle, partner_id:None,gold_target:None,carrying:False} }
+        self.group_status = {} # {0:{x:0,y:0,facing:N,state:idle, partner_id:None,gold_target:None,carrying:False},... }
         self.known_gold = {} 
        
         self.inbox = []
@@ -50,27 +50,16 @@ class Robot:
         msg = self.inbox[-1]
         if not isinstance(msg, (list, tuple)) or len(msg) < 2:
             return
-
+        
         incoming_known, incoming_group_status = msg[0], msg[1]
 
         # Merge known_gold (use min when we have existing estimate)
         if isinstance(incoming_known, dict):
-            for pos, amt in incoming_known.items():
-                pos_t = tuple(pos)
-                if pos_t in self.known_gold:
-                    self.known_gold[pos_t] = min(self.known_gold[pos_t], amt)
-                else:
-                    self.known_gold[pos_t] = amt
+            self.known_gold = incoming_known
 
         # Merge group_status
         if isinstance(incoming_group_status, dict):
-            # single status (has 'id')?
-            if "id" in incoming_group_status:
-                self.group_status[incoming_group_status["id"]] = incoming_group_status
-            else:
-                # assume mapping id->status
-                for rid, status in incoming_group_status.items():
-                    self.group_status[rid] = status
+            self.group_status = incoming_group_status
 
     # -------------------
     # Phase: Start
@@ -79,40 +68,37 @@ class Robot:
         # read latest message (if any) and merge into local maps
         self.process_latest_inbox()
         self.inbox.clear()  # clear inbox after processing
+        if self.state != self.group_status[self.id]["state"]:
+            self.sync_with_group_status()
+            
+            
         print(f"Start known_gold {self.id}: {self.known_gold}")
-        print(f"Start group_status {self.id}: {self.group_status}")
+        # print(f"Start group_status {self.id}: {self.group_status}")
         # sense environment and update local known_gold
         for (vx, vy) in self.sense():
             amt = world.grid[vy][vx]["gold"]
             if amt > 0:
                 self.known_gold[(vx, vy)] = amt
-
-        if self.state != self.group_status[self.id]["state"]:
-            self.sync_with_group_status
-
+                
 
         # build message [known_gold, group_status] and broadcast to team
         msg = [self.known_gold, self.group_status]
         self.broadcast_to_team(msg,robots)
 
-        # # update own status in group_status
-        # self.group_status[self.id] = {
-        #     "x": self.x,
-        #     "y": self.y,
-        #     "facing": self.facing,
-        #     "state": self.state,
-        #     "partner_id": self.partner_id,
-        #     "gold_target": self.gold_target,
-        #     "carrying": self.carrying
-        # }
+
     # -------------------
     # Phase: Decision
     # -------------------
     def decision_phase(self, world, robots):
+        # print(f'{self.id} inbox = {self.inbox[-1]}')
         self.process_latest_inbox()
         self.inbox.clear()
+        if self.state != self.group_status[self.id]["state"]:
+            print('syncing')
+            self.sync_with_group_status()
+            
         print(f"Decision known_gold {self.id}: {self.known_gold}")
-        print(f"Decision group_status {self.id}: {self.group_status}")
+        # print(f"Decision group_status {self.id}: {self.group_status}")
 
         if self.state == "idle":
             nearest_gold = self.find_nearest_unclaimed_gold()
@@ -135,16 +121,53 @@ class Robot:
                         "facing": partner.facing,
                         "state": "paired_for_gold",
                         "partner_id": self.id,
-                        "gold_target": self.gold_target}
-                        
+                        "gold_target": self.gold_target,
+                        "carrying": partner.carrying
+                        }
+                    print(f'partner {self.partner_id} = {self.group_status[self.partner_id]}')
                 else:
                     # No available partners; revert to idle
                     self.state = "idle"
                     self.gold_target = None
-
+                    self.partner_id = None
+            self.update_to_group_status()
             msg = [self.known_gold, self.group_status]
             self.broadcast_to_team(msg, robots)
+            
         elif self.state == "paired_for_gold":
+            # Verify the gold at our target still exists. If it doesn't, abort pairing.
+            if not self.gold_target:
+                # No target set; revert to idle
+                self.state = "idle"
+                self.partner_id = None
+            else:
+                tx, ty = self.gold_target
+                # If the gold is no longer at the location, revert both robots to idle
+                if world.grid[ty][tx]["gold"] <= 0:
+                    # Revert self
+                    self.state = "idle"
+                    self.gold_target = None
+                    # Revert partner in local group_status if known
+                    if self.partner_id is not None:
+                        pid = self.partner_id
+                        # Update partner's entry in our group_status map if it exists
+                        if pid in self.group_status:
+                            self.group_status[pid]["state"] = "idle"
+                            self.group_status[pid]["partner_id"] = None
+                            self.group_status[pid]["gold_target"] = None
+                        # Also clear our partner link
+                        self.partner_id = None
+            # Broadcast changes
+            self.update_to_group_status()
+            msg = [self.known_gold, self.group_status]
+            self.broadcast_to_team(msg, robots)
+            
+            
+        elif self.state == "carrying":
+            self.update_to_group_status()
+            msg = [self.known_gold, self.group_status]
+            self.broadcast_to_team(msg, robots)
+        print(f"{self.id} decision: state={self.state}, partner_id={self.partner_id}, gold_target={self.gold_target}")
             
 
         
@@ -154,50 +177,108 @@ class Robot:
     # Phase: Action
     # -------------------
     def action_phase(self, world, robots):
+        
+        self.process_latest_inbox()
+        self.inbox.clear()
+        if self.state != self.group_status[self.id]["state"]:
+            print('syncing')
+            self.sync_with_group_status()
+            
+            
         if self.state == "idle":
             self.random_move()
-        elif self.state in ("paired_for_gold", "carrying"):
-            target_x, target_y = self.gold_target if self.state == "paired_for_gold" else self.deposit
-            partner = next((r for r in robots if r.id == self.partner_id), None)
-            if partner:
-                dist_to_partner = abs(self.x - partner.x) + abs(self.y - partner.y)
-                if self.is_leader:
-                    if dist_to_partner > 1:
-                        pass  # wait
-                    else:
-                        self.move_towards(target_x, target_y)
-                else:
-                    if dist_to_partner > 1:
-                        self.move_towards(partner.x, partner.y)
-                    else:
-                        self.move_towards(target_x, target_y)
-
-            # Check for pick or deposit
-            if self.state == "paired_for_gold" and (self.x, self.y) == (target_x, target_y) and world.grid[target_y][target_x]["gold"] > 0:
-                if partner and (partner.x, partner.y) == (target_x, target_y):
-                    if self.is_leader:
-                        world.grid[target_y][target_x]["gold"] -= 1
-                        self.state = "carrying"
+        
+        elif self.state == "paired_for_gold":
+            if not self.gold_target:
+                # No target set; revert to idle
+                self.state = "idle"
+                self.partner_id = None
+                self.update_to_group_status()
+                msg = [self.known_gold, self.group_status]
+                self.broadcast_to_team(msg, robots)
+                return
+            
+            tx, ty = self.gold_target
+            if (self.x, self.y) == (tx, ty):
+                # At gold location; pick up gold
+                if world.grid[ty][tx]["gold"] > 0 and not self.carrying:
+                    if self.group_status[self.partner_id]['x'] == tx and self.group_status[self.partner_id]['y'] == ty and not self.group_status[self.partner_id]['carrying']:
+                        world.grid[ty][tx]["gold"] -= 1
                         self.carrying = True
+                        self.state = "carrying"
                         self.gold_target = None
-                        self.send_next_cycle(self.partner_id, {
-                            "type": "transition",
-                            "sender": self.id,
-                            "data": {"new_state": "carrying", "target_id": self.partner_id}
-                        })
-            elif self.state == "carrying" and (self.x, self.y) == self.deposit:
-                if partner and (partner.x, partner.y) == self.deposit:
-                    if self.is_leader:
-                        world.scores[self.group] += 1
-                        self.carrying = False
-                        self.state = "idle"
-                        self.partner_id = None
-                        self.is_leader = False
-                        self.send_next_cycle(partner.id, {
-                            "type": "transition",
-                            "sender": self.id,
-                            "data": {"new_state": "idle", "target_id": partner.id}
-                        })
+                        
+                        # Update known_gold
+                        if (tx, ty) in self.known_gold:
+                            self.known_gold[(tx, ty)] -= 1
+                            if self.known_gold[(tx, ty)] <= 0:
+                                del self.known_gold[(tx, ty)]
+                        # Update partner state to carrying as well
+                        if self.partner_id is not None and self.partner_id in self.group_status:
+                            pid = self.partner_id
+                            self.group_status[pid]["state"] = "carrying"
+                            self.group_status[pid]["carrying"] = True
+                            self.group_status[pid]["gold_target"] = None
+                        print(f"{self.id} picked up gold at ({tx}, {ty})")
+                        
+                        self.update_to_group_status()
+                        msg = [self.known_gold, self.group_status]
+                        self.broadcast_to_team(msg, robots)
+                    else:
+                        self.move_towards(tx, ty)
+                    
+                else:
+                    # Gold no longer present or already carrying; revert to idle
+                    self.state = "idle"
+                    self.gold_target = None
+                    if self.partner_id is not None and self.partner_id in self.group_status:
+                        pid = self.partner_id
+                        self.group_status[pid]["state"] = "idle"
+                        self.group_status[pid]["partner_id"] = None
+                        self.group_status[pid]["gold_target"] = None
+                    self.partner_id = None
+                    
+                    self.update_to_group_status()
+                    msg = [self.known_gold, self.group_status]
+                    self.broadcast_to_team(msg, robots)
+                
+            else:
+                # Move towards gold target
+                self.move_towards(tx, ty)
+                self.update_to_group_status()
+                msg = [self.known_gold, self.group_status]
+                self.broadcast_to_team(msg, robots)
+                
+        elif self.state == "carrying":
+            
+            dx, dy = self.deposit
+            if self.facing != self.group_status[self.partner_id]["facing"] and self.id > self.partner_id:
+                self.turn(self.group_status[self.partner_id]["facing"])
+                
+                self.update_to_group_status()
+                msg = [self.known_gold, self.group_status]
+                self.broadcast_to_team(msg, robots)
+                    
+            if (self.x, self.y) == (dx, dy) and (self.group_status[self.partner_id]['x'], self.group_status[self.partner_id]['y']) == (dx, dy):
+                # At deposit; drop gold
+                if self.carrying:
+                    world.scores[self.group] += 1
+                    self.carrying = False
+                    self.state = "idle"
+                    print(f"{self.id} deposited gold at ({dx}, {dy})")
+                    
+                    self.group_status[self.id]["state"] = "idle"
+                    self.group_status[self.id]["carrying"] = False
+                    
+                    
+            else:
+                # Move towards deposit
+                self.move_towards(dx, dy)
+                
+            self.update_to_group_status()
+            msg = [self.known_gold, self.group_status]
+            self.broadcast_to_team(msg, robots)
+                
 
     # -------------------
     # Movement/sense
@@ -362,14 +443,24 @@ class Robot:
             safe.append("W")
         return safe #list of safe directions
     
+    def update_to_group_status(self):
+        self.group_status[self.id] = {
+            "x": self.x,
+            "y": self.y,
+            "facing": self.facing,
+            "state": self.state,
+            "partner_id": self.partner_id,
+            "gold_target": self.gold_target,
+            "carrying": self.carrying
+        }
+        
     def sync_with_group_status(self):
- 
-        if self.id in self.group_status:
-            status = self.group_status[self.id]
-            self.x = status.get("x", self.x)
-            self.y = status.get("y", self.y)
-            self.facing = status.get("facing", self.facing)
-            self.state = status.get("state", self.state)
-            self.partner_id = status.get("partner_id", self.partner_id)
-            self.gold_target = status.get("gold_target", self.gold_target)
-            self.carrying = status.get("carrying", self.carrying)
+        status = self.group_status[self.id]
+        print(self.group_status[self.id])
+        self.x = status["x"]
+        self.y = status["y"]
+        self.facing = status['facing']
+        self.state = status['state']
+        self.partner_id = status['partner_id']
+        self.gold_target = status['gold_target']
+        self.carrying = status['carrying']

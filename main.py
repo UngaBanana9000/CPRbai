@@ -14,12 +14,13 @@ def main():
 
     group_status = update_group_status(robots)
     print(group_status)
+    
     for r in robots:
         r.group_status = group_status[r.group]
     print("group status updated")
 
 
-    for step in range(100):
+    for step in range(1000):
         print(f"\n=== Step {step} ===")
 
         # --- Phase 1: Start ---
@@ -47,9 +48,8 @@ def update_group_status(robots):
     group_status = {}
     for r in robots:
         if r.group not in group_status:
-            group_status[r.group] = []
-        group_status[r.group].append({
-            "id": r.id,
+            group_status[r.group] = {}
+        group_status[r.group][r.id] ={
             "x": r.x,
             "y": r.y,
             "facing": r.facing,
@@ -57,7 +57,7 @@ def update_group_status(robots):
             "partner_id": r.partner_id,
             "gold_target": r.gold_target,
             "carrying": r.carrying
-        })
+        }
     return group_status
 
 if __name__ == "__main__":

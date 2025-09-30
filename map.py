@@ -1,9 +1,10 @@
 # map.py
 import random
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as patheffects
 
 GRID_SIZE = 20
-GOLD = 30
+GOLD = 10
 
 class Map:
     def __init__(self):
@@ -78,6 +79,24 @@ class Map:
              # 🟡 Mark carrying gold
             if r.carrying:
                 self.ax.scatter(r.x, r.y, c="gold", marker="o", s=200, alpha=0.6, edgecolors="black")
+            
+            # Draw robot id above the robot marker for easy identification
+            # use a thin black stroke behind white text for readability on any background
+            try:
+                self.ax.text(
+                    r.x,
+                    r.y + 0,
+                    str(r.id),
+                    color="white",
+                    fontsize=8,
+                    ha="center",
+                    va="bottom",
+                    weight="bold",
+                    path_effects=[patheffects.Stroke(linewidth=1.5, foreground='black'), patheffects.Normal()]
+                )
+            except Exception:
+                # Fallback: draw plain text if patheffects are unavailable for some reason
+                self.ax.text(r.x, r.y + 0.45, str(r.id), color="black", fontsize=8, ha="center", va="bottom")
  
         # Title → Step counter + scores
         self.ax.set_title(f"Step {step} | Scores → Group1: {self.scores['group1']} | Group2: {self.scores['group2']}")
