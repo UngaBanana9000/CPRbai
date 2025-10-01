@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as patheffects
 
 GRID_SIZE = 20
-GOLD = 10
+GOLD =50
 
 class Map:
     def __init__(self):
@@ -54,7 +54,11 @@ class Map:
                     self.ax.scatter(x, y, c="gold", marker="o", s=100)
                     # draw number of golds
                     self.ax.text(x, y, str(gold_amt), color="black", fontsize=8, ha="center", va="center")
-
+        
+        # Prepare grouping of robots by position so IDs can be stacked when overlapping
+        from collections import defaultdict as _dd
+        positions = _dd(list)
+        
         # Draw robots
         for r in robots:
             color = "blue" if r.group == "group1" else "red"
@@ -80,25 +84,34 @@ class Map:
             if r.carrying:
                 self.ax.scatter(r.x, r.y, c="gold", marker="o", s=200, alpha=0.6, edgecolors="black")
             
-            # Draw robot id above the robot marker for easy identification
-            # use a thin black stroke behind white text for readability on any background
-            try:
-                self.ax.text(
-                    r.x,
-                    r.y + 0,
-                    str(r.id),
-                    color="white",
-                    fontsize=8,
-                    ha="center",
-                    va="bottom",
-                    weight="bold",
-                    path_effects=[patheffects.Stroke(linewidth=1.5, foreground='black'), patheffects.Normal()]
-                )
-            except Exception:
-                # Fallback: draw plain text if patheffects are unavailable for some reason
-                self.ax.text(r.x, r.y + 0.45, str(r.id), color="black", fontsize=8, ha="center", va="bottom")
- 
+            positions[(r.x, r.y)].append(r)
+
+            # Draw stacked IDs for positions that contain one or more robots
+        for (px, py), robots_at in positions.items():
+            # start slightly above the robot marker; stack upward
+            base_offset = 0.25
+            gap = 0.5
+            # If many robots, reduce font size to fit
+            fontsize = 8 if len(robots_at) <= 4 else max(6, 8 - (len(robots_at) - 4))
+            for idx, r in enumerate(sorted(robots_at, key=lambda rr: rr.id)):
+                offset_y = base_offset + idx * gap
+                try:
+                    self.ax.text(
+                        px,
+                        py + offset_y,
+                        str(r.id),
+                        color="white",
+                        fontsize=fontsize,
+                        ha="center",
+                        va="bottom",
+                        weight="bold",
+                        path_effects=[patheffects.Stroke(linewidth=1.5, foreground='black'), patheffects.Normal()]
+                    )
+                except Exception:
+                    # Fallback: plain text
+                    self.ax.text(px, py + offset_y, str(r.id), color="black", fontsize=fontsize, ha="center", va="bottom")
+
         # Title → Step counter + scores
         self.ax.set_title(f"Step {step} | Scores → Group1: {self.scores['group1']} | Group2: {self.scores['group2']}")
 
-        plt.pause(0.1)  # update frame
+        plt.pause(0.05)  # update frame
