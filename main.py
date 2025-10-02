@@ -9,11 +9,12 @@ def main():
 
     # Create robots
     for i in range(10):
+        
         robots.append(Robot(i, "group1", 0, 0,"N"))
         robots.append(Robot(i+10, "group2", 19, 19,"S"))
 
     group_status = update_group_status(robots)
-    print(group_status)
+    # print(group_status)
     
     for r in robots:
         r.group_status = group_status[r.group]

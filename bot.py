@@ -23,7 +23,7 @@ class Robot:
 
         self.group_status = {} # {0:{x:0,y:0,facing:N,state:idle, partner_id:None,gold_target:None,carrying:False},... }
         self.known_gold = {} 
-        self.known_cells = set()
+        self.known_cells = set() # to impliment
         
         self.inbox = []
         
@@ -153,7 +153,13 @@ class Robot:
             else:
                 tx, ty = self.gold_target
                 # If the gold is no longer at the location, revert both robots to idle
-                if world.grid[ty][tx]["gold"] <= 0:
+                if self.id != self.group_status[self.partner_id]["partner_id"]:
+                    # Partner no longer recognizes us as partner; revert to idle
+                    self.state = "idle"
+                    self.gold_target = None
+                    self.partner_id = None
+                    
+                elif world.grid[ty][tx]["gold"] <= 0:
                     # Revert self
                     self.state = "idle"
                     self.gold_target = None
@@ -167,6 +173,7 @@ class Robot:
                             self.group_status[pid]["gold_target"] = None
                         # Also clear our partner link
                         self.partner_id = None
+                        
             # Broadcast changes
             self.update_to_group_status()
             msg = [self.known_gold, self.group_status,self.known_cells]
@@ -420,48 +427,36 @@ class Robot:
             if safe_dirs:
                 self.turn(random.choice(safe_dirs))
     
-    def random_move1(self):
-        possible_actions = []
+    def move_explore(self):
+        """
+        Move toward the nearest unknown cell (exploration).
+        Uses BFS to find the closest cell not in known_cells.
+        """
+        from collections import deque
 
-        # Move forward if possible
-        can_move = False
-        new_x = self.x
-        new_y = self.y
-        if self.facing == "N" and self.y < GRID_SIZE - 1:
-            new_y += 1
-            can_move = True
-        elif self.facing == "S" and self.y > 0:
-            new_y -= 1
-            can_move = True
-        elif self.facing == "E" and self.x < GRID_SIZE - 1:
-            new_x += 1
-            can_move = True
-        elif self.facing == "W" and self.x > 0:
-            new_x -= 1
-            can_move = True
+        target = None
+        visited = set()
+        q = deque([(self.x, self.y, [])])  # (x, y, path)
 
-        if can_move:
-            visible = self.sense()
-            new_count = sum(1 for v in visible if v not in self.known_cells)
-            possible_actions.append((new_count, 'forward'))
+        while q:
+            x, y, path = q.popleft()
+            if (x, y) not in self.known_cells:
+                target = (x, y)
+                break
+            for dx, dy, d in [(0,1,"N"), (0,-1,"S"), (1,0,"E"), (-1,0,"W")]:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    q.append((nx, ny, path + [(nx, ny)]))
 
-        # Turn to each direction if different
-        for d in DIRECTIONS:
-            if d != self.facing:
-                visible = self.sense()
-                new_count = sum(1 for v in visible if v not in self.known_cells)
-                possible_actions.append((new_count, 'turn', d))
+        # If no unknown cell found, fallback to random_move
+        if not target:
+            self.random_move()
+            return
 
-        if possible_actions:
-            max_count = max(a[0] for a in possible_actions)
-            candidates = [a for a in possible_actions if a[0] == max_count]
-            chosen = random.choice(candidates)
-            if chosen[1] == 'forward':
-                self.move_forward()
-            else:
-                self.turn(chosen[2])
-        else:
-            self.random_move1()
+        # Move one step toward target
+        tx, ty = target
+        self.move_towards(tx, ty)
 
     def sense(self):
         """Return list of cells visible in front (3 at 1+, 5 at 2+)."""

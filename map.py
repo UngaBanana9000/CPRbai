@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as patheffects
 
 GRID_SIZE = 20
-GOLD =50
+GOLD = 30
 
 class Map:
     def __init__(self):
